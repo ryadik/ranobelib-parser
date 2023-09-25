@@ -200,8 +200,8 @@ function generateEpubFromData(bookData) {
 userAlert();
 
 const PAGE_URL = getBookURL()
-const bookName = PAGE_URL.split('/').pop()
-const outputBookPath = `./books/${bookName}.epub`;
+const BOOK_NAME = PAGE_URL.split('/').pop()
+const OUTPUT_BOOK_PATH = `./books/${BOOK_NAME}.epub`;
 
 (async () => {
   console.log('\nПолучение информации о книге...')
@@ -219,11 +219,11 @@ const outputBookPath = `./books/${bookName}.epub`;
   const epubBookOptions = {
     ...bookInfo,
     content: [...bookContent],
-    output: outputBookPath,
+    output: OUTPUT_BOOK_PATH,
     verbose: true,
   }
 
-  console.log(`\nГенерация книги ${bookName}.epub в папке books/\n`)
+  console.log(`\nГенерация книги ${BOOK_NAME}.epub в папке books/\n`)
   await delay(1000)
   await generateEpubFromData(epubBookOptions)
   console.log('\nКнига успешно добавлена в папку book/')
