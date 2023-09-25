@@ -1,0 +1,31 @@
+{
+  "name": "ranobelib-parser",
+  "version": "1.0.0",
+  "description": "Book parser for https://ranobelib.me Парсер книг для сайта https://ranobelib.me",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/K1nGsmaN-hub/ranobelib-parser"
+  },
+  "keywords": [
+    "parser",
+    "парсер",
+    "ranobelib",
+    "ранобэлиб",
+    "ранобэ",
+    "epub",
+    "епаб"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Ilya Ryadinskii",
+  "license": "MIT",
+  "dependencies": {
+    "epub-gen": "^0.1.0",
+    "node-fetch": "^3.3.2",
+    "prompt-sync": "^4.2.0",
+    "puppeteer": "^21.3.4"
+  },
+  "type": "module"
+}
