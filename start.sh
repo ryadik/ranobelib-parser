@@ -1,5 +1,5 @@
 #!/bin/bash
 
-npm install
+npm install --silent
 
-npm start
+npm run start --silent
