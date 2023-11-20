@@ -17,7 +17,8 @@
   ],
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "build": "tsc",
+    "start": "node build/index.js",
     "test": "node src/test.js"
   },
   "author": "Ilya Ryadinskii",
@@ -26,7 +27,12 @@
     "epub-gen": "^0.1.0",
     "node-fetch": "^3.3.2",
     "prompt-sync": "^4.2.0",
-    "puppeteer": "^21.3.4"
+    "puppeteer": "^21.3.4",
+    "typescript": "^5.2.2"
   },
-  "type": "module"
+  "devDependencies": {
+    "@types/epub-gen": "^0.1.0",
+    "@types/node": "^20.7.0",
+    "@types/prompt-sync": "^4.2.1"
+  }
 }
