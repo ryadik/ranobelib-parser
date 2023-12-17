@@ -109,8 +109,11 @@ export class BookService implements BookServiceModel {
         const bookContent = await page.evaluate(() => {
             const content = document.querySelector('div.reader-container.container.container_center')
 
-            if (content)
+            if (content) {
+                // Если img.src - undfined, заменяем на пустую строку чтоб избежать ошибки epub-gen
+                content.querySelectorAll('img').forEach((img) => img.src = img.src || '')
                 return content.innerHTML;
+            }
             else {
                 this.$errorService.throwError(ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND, 'кнопку чтения книги')
                 return '';
