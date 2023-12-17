@@ -8,21 +8,15 @@ import {ErrorMsgModel} from "../../models/error-handler-service.model";
 import {ErrorHandler} from "../ErrorHandler/index";
 import {BrowserService} from "../BrowserService/index";
 import {CommonService} from "../CommonService/index";
+import {Config, Prompt} from "prompt-sync";
 
 export class BookService implements BookServiceModel {
-    private $errorService: ErrorHandler;
-    private $browserService: BrowserService;
-    private $commonService: CommonService;
-
-    constructor(
-        $errorService: ErrorHandler,
-        $browserService: BrowserService,
-        $commonService: CommonService,
-    ) {
-        this.$errorService = $errorService;
-        this.$browserService = $browserService;
-        this.$commonService = $commonService
-    }
+  constructor(
+    private $errorService: ErrorHandler,
+    private $browserService: BrowserService,
+    private $commonService: CommonService,
+    private $promptSync: (config?: Config) => Prompt
+  ) {}
 
     public async getBookInfo(url: string): Promise<BookInfoModel> {
         const { browser, page } = await this.$browserService.startBrowser();
@@ -75,6 +69,47 @@ export class BookService implements BookServiceModel {
             await chapterButton.click();
         else
             this.$errorService.throwError(ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND, 'кнопку для открытия списка глав')
+
+        try {
+          // Находим див в котором выводятся все доступные команды перевода
+          const teamsDiv = await page.waitForSelector("div.team-list", {timeout: 5000});
+
+          if (teamsDiv) {
+            // Если таковой есть - получаем все варианты, даем выбор в промпту
+            const teamsButtons = await page.evaluate(() => {
+              const data: NodeListOf<HTMLElement> =
+                document.querySelectorAll("div.team-item-wrap");
+              return Array.from(data).map(
+                (elem) =>
+                  elem.querySelector("div.team-list-item__name > span")
+                    ?.textContent || "Неизвестно"
+              );
+            });
+            const prompt = this.$promptSync({ sigint: true });
+            console.log(
+              `Найдено ${teamsButtons.length} команд, выберите одну (нужно ввести цыфру)`
+            );
+            teamsButtons.forEach((team, idx) => console.log(`${idx + 1} ` + team.trim()));
+
+            const selectedTeam = prompt({});
+
+            if (+selectedTeam > teamsButtons.length) {
+              this.$errorService.throwError(
+                ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND,
+                "выбраную команду"
+              );
+            }
+            
+            const teamButton = await page.waitForSelector(`div.team-item-wrap:nth-child(${+selectedTeam})`)
+            
+            if (teamButton) await teamButton.click();
+            else
+              this.$errorService.throwError(
+                ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND,
+                "выбраную команду"
+              );  
+          }
+        } catch {}
 
         // Собираю все главы с называниями в один массив
         // Со страницы книги, простым путем, это сделать не получится

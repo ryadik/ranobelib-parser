@@ -11,7 +11,8 @@ const $commonService = new CommonService(promptSync);
 const $bookService = new BookService(
     $errorService,
     $browserService,
-    $commonService
+    $commonService,
+    promptSync
 )
 
 export {
