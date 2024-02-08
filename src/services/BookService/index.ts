@@ -87,26 +87,26 @@ export class BookService implements BookServiceModel {
             });
             const prompt = this.$promptSync({ sigint: true });
             console.log(
-              `Найдено ${teamsButtons.length} команд, выберите одну (нужно ввести цыфру)`
+              `Найдено ${teamsButtons.length} команд, выберите одну (нужно ввести цифру)`
             );
-            teamsButtons.forEach((team, idx) => console.log(`${idx + 1} ` + team.trim()));
+            teamsButtons.forEach((team, index) => console.log(`${index + 1} ` + team.trim()));
 
             const selectedTeam = prompt({});
 
             if (+selectedTeam > teamsButtons.length) {
               this.$errorService.throwError(
                 ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND,
-                "выбраную команду"
+                "выбранную команду"
               );
             }
             
-            const teamButton = await page.waitForSelector(`div.team-item-wrap:nth-child(${+selectedTeam})`)
+            const teamButton = await page.waitForSelector(`div.team-item-wrap:nth-child(${selectedTeam})`)
             
             if (teamButton) await teamButton.click();
             else
               this.$errorService.throwError(
                 ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND,
-                "выбраную команду"
+                "выбранную команду"
               );  
           }
         } catch {}
