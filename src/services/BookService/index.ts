@@ -19,6 +19,8 @@ export class BookService implements BookServiceModel {
   ) {}
 
     public async getBookInfo(url: string): Promise<BookInfoModel> {
+
+
         const { browser, page } = await this.$browserService.startBrowser();
 
         await this.$browserService.gotoPage(page, url)
@@ -28,11 +30,12 @@ export class BookService implements BookServiceModel {
             const title = document.querySelector('div.media-name__body > div.media-name__main');
             const author = document.querySelector('div.media-info-list__item > div.media-info-list__value > a');
             const coverImg: HTMLImageElement | null = document.querySelector('div.media-sidebar__cover.paper > img');
+            const coverPlaceholder = 'https://aeroclub-issoire.fr/wp-content/uploads/2020/05/image-not-found.jpg'
 
             return {
                 title: title?.textContent || '',
                 author: author?.textContent || '',
-                cover: coverImg?.src || '',
+                cover: coverImg?.src || coverPlaceholder,
                 lang: 'ru',
                 tocTitle: 'Содержание',
             }
