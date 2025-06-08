@@ -35,4 +35,119 @@ export class CommonService implements CommonServiceModel {
             setTimeout(resolve, time)
         });
     }
+
+    public selectVolumesToDownload(chaptersData: any[]): any[] {
+        const prompt = this.$promtSync({ sigint: true });
+        
+        // Группируем главы по томам
+        const volumeMap = new Map<number, number>();
+        chaptersData.forEach(chapter => {
+            const volumeMatch = chapter.title.match(/Том (\d+)/);
+            if (volumeMatch) {
+                const volume = parseInt(volumeMatch[1]);
+                volumeMap.set(volume, (volumeMap.get(volume) || 0) + 1);
+            }
+        });
+        
+        const volumes = Array.from(volumeMap.keys()).sort((a, b) => a - b);
+        
+        console.log('\n📚 Найдены следующие тома:');
+        volumes.forEach(vol => {
+            const chapterCount = volumeMap.get(vol) || 0;
+            console.log(`   Том ${vol}: ${chapterCount} глав`);
+        });
+        
+        console.log(`\n📊 Всего: ${volumes.length} томов, ${chaptersData.length} глав`);
+        console.log('\n⚠️ Загрузка всех глав может занять несколько часов!');
+        
+        console.log('\nВыберите что загружать:');
+        console.log('1. Загрузить все тома');
+        console.log('2. Выбрать конкретные тома');
+        console.log('3. Загрузить диапазон томов (например, 1-3)');
+        console.log('4. Загрузить только первые N глав (для тестирования)');
+        
+        const choice = prompt('Ваш выбор (1-4): ');
+        
+        let selectedVolumes: number[] = [];
+        
+        switch (choice) {
+            case '1':
+                console.log('✅ Выбраны все тома');
+                selectedVolumes = volumes;
+                break;
+                
+            case '2':
+                const volumesInput = prompt(`Введите номера томов через запятую (доступно: ${volumes.join(', ')}): `);
+                if (volumesInput) {
+                    const inputVolumes = volumesInput.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v) && volumes.includes(v));
+                    if (inputVolumes.length > 0) {
+                        console.log(`✅ Выбраны тома: ${inputVolumes.join(', ')}`);
+                        selectedVolumes = inputVolumes;
+                        break;
+                    }
+                }
+                console.log('❌ Неверный ввод. Загружаем только том 1');
+                selectedVolumes = [1];
+                break;
+                
+            case '3':
+                const rangeInput = prompt('Введите диапазон томов (например, 1-3): ');
+                if (rangeInput && rangeInput.includes('-')) {
+                    const [start, end] = rangeInput.split('-').map(v => parseInt(v.trim()));
+                    if (!isNaN(start) && !isNaN(end) && start <= end) {
+                        const rangeVolumes = [];
+                        for (let i = start; i <= end; i++) {
+                            if (volumes.includes(i)) {
+                                rangeVolumes.push(i);
+                            }
+                        }
+                        if (rangeVolumes.length > 0) {
+                            console.log(`✅ Выбран диапазон: тома ${rangeVolumes.join(', ')}`);
+                            selectedVolumes = rangeVolumes;
+                            break;
+                        }
+                    }
+                }
+                console.log('❌ Неверный диапазон. Загружаем только том 1');
+                selectedVolumes = [1];
+                break;
+                
+            case '4':
+                const maxChaptersInput = prompt('Введите количество первых глав для загрузки: ');
+                const maxChapters = parseInt(maxChaptersInput || '5');
+                if (!isNaN(maxChapters) && maxChapters > 0) {
+                    console.log(`✅ Выбрано: первые ${maxChapters} глав`);
+                    return [-1, maxChapters]; // -1 означает "ограничить по количеству глав"
+                }
+                console.log('❌ Неверное количество. Загружаем первые 5 глав');
+                return [-1, 5];
+                
+            default:
+                console.log('❌ Неверный выбор. Загружаем только том 1');
+                selectedVolumes = [1];
+                break;
+        }
+        
+        // Если выбрано больше одного тома, предлагаем режим обработки
+        if (selectedVolumes.length > 1) {
+            console.log('\n🔧 Выберите режим обработки:');
+            console.log('1. 📚 Объединить все в один EPUB (быстрее, но риск потерять всё при ошибке)');
+            console.log('2. 🔥 Обрабатывать тома по отдельности (БЕЗОПАСНО! Рекомендуется)');
+            
+            const modeChoice = prompt('Ваш выбор (1-2): ');
+            
+            if (modeChoice === '2') {
+                console.log('✅ Выбрана БЕЗОПАСНАЯ обработка по томам');
+                console.log('💡 Каждый том будет сохранен как отдельный EPUB файл');
+                console.log('🛡️ При ошибке потеряется только текущий том, а не всё');
+                return ['VOLUME_BY_VOLUME', ...selectedVolumes]; // Специальный маркер
+            } else {
+                console.log('✅ Выбрана обычная обработка (один файл)');
+                console.log('⚠️ При ошибке можете потерять весь прогресс!');
+                return selectedVolumes;
+            }
+        }
+        
+        return selectedVolumes;
+    }
 }
