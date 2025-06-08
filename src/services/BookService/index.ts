@@ -625,39 +625,86 @@ export class BookService implements BookServiceModel {
         return bookContent;
     }
 
-    // Улучшенная генерация EPUB с принудительным отключением изображений при ошибках
+    // Улучшенная генерация EPUB с переходом на режим без изображений при ошибках
     public async generateEpubFromData(bookData: BookDataModel): Promise<any> {
-        console.log(`📚 Генерация EPUB...`);
+        console.log(`📚 Генерация EPUB с изображениями...`);
         
-        // СТРАТЕГИЯ: Сразу создаем версию без изображений как fallback
         try {
             // Предварительно обрабатываем изображения в контенте
             const processedBookData = this.preprocessImages(bookData);
             
-            // Пробуем создать с обработанными изображениями
-            const epub = new EPub(processedBookData, processedBookData.output);
+            // Создаем обработчик для перехвата глобальных ошибок
+            const originalListeners = {
+                uncaughtException: process.listeners('uncaughtException'),
+                unhandledRejection: process.listeners('unhandledRejection')
+            };
             
-            // Устанавливаем таймаут 5 минут
-            const result = await Promise.race([
-                epub.promise,
-                new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Таймаут генерации EPUB (5 минут)')), 5 * 60 * 1000);
-                })
-            ]);
+            let globalErrorCaught = false;
             
-            return result;
+            const globalErrorHandler = (error: any) => {
+                const errorMessage = error.message || error.toString();
+                if (errorMessage.toLowerCase().includes('econnreset') ||
+                    errorMessage.toLowerCase().includes('aborted') ||
+                    errorMessage.toLowerCase().includes('socket')) {
+                    globalErrorCaught = true;
+                    console.log(`🔥 Перехвачена глобальная ошибка: ${errorMessage}`);
+                    return; // Не прерываем процесс
+                }
+            };
+            
+            // Добавляем временные обработчики
+            process.on('uncaughtException', globalErrorHandler);
+            process.on('unhandledRejection', globalErrorHandler);
+            
+            try {
+                // Пробуем создать с обработанными изображениями
+                const epub = new EPub(processedBookData, processedBookData.output);
+                
+                // Устанавливаем таймаут 3 минуты для первой попытки
+                const result = await Promise.race([
+                    epub.promise,
+                    new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('Таймаут генерации EPUB с изображениями (3 минуты)')), 3 * 60 * 1000);
+                    })
+                ]);
+                
+                // Восстанавливаем обработчики
+                process.removeListener('uncaughtException', globalErrorHandler);
+                process.removeListener('unhandledRejection', globalErrorHandler);
+                
+                console.log('✅ EPUB с изображениями успешно создан!');
+                return result;
+                
+            } finally {
+                // Всегда восстанавливаем обработчики
+                process.removeListener('uncaughtException', globalErrorHandler);
+                process.removeListener('unhandledRejection', globalErrorHandler);
+            }
             
         } catch (error: any) {
             const errorMessage = error.message || error.toString();
-            console.log(`⚠️ Ошибка при генерации EPUB с изображениями: ${errorMessage}`);
             
-            // При ЛЮБОЙ ошибке сразу переходим на версию без изображений
-            console.log(`🚫 Переходим на режим БЕЗ ИЗОБРАЖЕНИЙ...`);
+            // Проверяем, является ли это ошибкой соединения
+            const isConnectionError = errorMessage.toLowerCase().includes('econnreset') ||
+                                    errorMessage.toLowerCase().includes('network') ||
+                                    errorMessage.toLowerCase().includes('timeout') ||
+                                    errorMessage.toLowerCase().includes('connection') ||
+                                    errorMessage.toLowerCase().includes('aborted') ||
+                                    errorMessage.toLowerCase().includes('socket') ||
+                                    errorMessage.toLowerCase().includes('fetch');
             
-            const fallbackPath = (bookData.output || 'book.epub').replace('.epub', '_без_изображений.epub');
-            const fallbackData = { ...bookData, output: fallbackPath };
-            
-            return await this.generateEpubFromDataNoImages(fallbackData);
+            if (isConnectionError) {
+                console.log(`⚠️ Ошибка сети при генерации EPUB с изображениями: ${errorMessage}`);
+                console.log(`🚫 Переходим на режим БЕЗ ИЗОБРАЖЕНИЙ...`);
+                
+                const fallbackPath = (bookData.output || 'book.epub').replace('.epub', '_без_изображений.epub');
+                const fallbackData = { ...bookData, output: fallbackPath };
+                
+                return await this.generateEpubFromDataNoImages(fallbackData);
+            } else {
+                // Для других ошибок прокидываем дальше
+                throw error;
+            }
         }
     }
 
@@ -709,19 +756,12 @@ export class BookService implements BookServiceModel {
                                 return '';
                             }
                             
-                            // СТРАТЕГИЯ 2: Заменяем ВСЕ изображения на заглушки для стабильности
-                            if (imageUrl.startsWith('http')) {
+                            // СТРАТЕГИЯ 2: Заменяем только внешние изображения на заглушки
+                            if (imageUrl.startsWith('http') && !imageUrl.includes('ranobelib.me')) {
                                 processedImages++;
-                                
-                                // Для изображений ranobelib.me тоже создаем заглушки из-за ECONNRESET
-                                if (imageUrl.includes('ranobelib.me')) {
-                                    console.log(`🔄 Заменено изображение ranobelib.me на заглушку (избегаем ECONNRESET)`);
-                                } else {
-                                    console.log(`🔄 Заменено внешнее изображение на заглушку`);
-                                }
-                                
+                                console.log(`🔄 Заменено внешнее изображение на заглушку`);
                                 return `<div style="text-align: center; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; color: #666;">
-                                    📷 [Изображение удалено для стабильности]
+                                    📷 [Внешнее изображение удалено для стабильности]
                                 </div>`;
                             }
                         }
@@ -954,7 +994,7 @@ export class BookService implements BookServiceModel {
     }
 
     // Метод для обработки томов по одному
-    public async processVolumesByOne(chapters: BookChaptersModel[], bookId: string, bookInfo: BookInfoModel, basePath: string): Promise<string[]> {
+    public async processVolumesByOne(chapters: BookChaptersModel[], bookId: string, bookInfo: BookInfoModel, basePath: string, noImagesMode: boolean = false): Promise<string[]> {
         const volumeGroups = this.groupChaptersByVolumes(chapters);
         const volumes = Array.from(volumeGroups.keys()).sort((a, b) => a - b);
         const createdFiles: string[] = [];
@@ -996,7 +1036,12 @@ export class BookService implements BookServiceModel {
                 };
                 
                 try {
-                    await this.generateEpubFromData(volumeBookOptions);
+                    if (noImagesMode) {
+                        console.log('🚫 Создаем том БЕЗ изображений (выбрано пользователем)');
+                        await this.generateEpubFromDataNoImages(volumeBookOptions);
+                    } else {
+                        await this.generateEpubFromData(volumeBookOptions);
+                    }
                 } catch (epubError: any) {
                     const errorMessage = epubError.message || epubError.toString();
                     

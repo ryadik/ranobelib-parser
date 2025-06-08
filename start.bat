@@ -1,9 +1,7 @@
 cls
 
-call npm install
+call npm install --silent
 
-call npm run build 
+call npm run build --silent
 
-call npm run start
-
-pause
+call npm run start --silent
