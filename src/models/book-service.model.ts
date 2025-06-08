@@ -11,5 +11,5 @@ export interface BookServiceModel {
     generateEpubFromDataNoImages(bookData: BookDataModel): Promise<any>;
     filterChaptersByVolumes(chapters: BookChaptersModel[], selectedVolumes: number[]): BookChaptersModel[];
     groupChaptersByVolumes(chapters: BookChaptersModel[]): Map<number, BookChaptersModel[]>;
-    processVolumesByOne(chapters: BookChaptersModel[], bookId: string, bookInfo: BookInfoModel, basePath: string): Promise<string[]>;
+    processVolumesByOne(chapters: BookChaptersModel[], bookId: string, bookInfo: BookInfoModel, basePath: string, noImagesMode?: boolean): Promise<string[]>;
 }

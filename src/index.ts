@@ -29,9 +29,36 @@ const BOOK_ID = BOOK_NAME; // Используем для идентификац
   
   // Проверяем режим обработки
   const isVolumeByVolumeMode = Array.isArray(selectionResult) && selectionResult[0] === 'VOLUME_BY_VOLUME';
-  const selectedVolumes = isVolumeByVolumeMode ? selectionResult.slice(1) : selectionResult;
+  const isNoImagesMode = Array.isArray(selectionResult) && selectionResult.includes('NO_IMAGES');
+  
+  // Извлекаем номера томов (убираем специальные маркеры)
+  let selectedVolumes;
+  if (Array.isArray(selectionResult)) {
+    // Фильтруем специальные маркеры, но сохраняем -1 для тестового режима
+    selectedVolumes = selectionResult.filter(item => 
+      typeof item === 'number' || 
+      (!isNaN(Number(item)) && item !== 'VOLUME_BY_VOLUME' && item !== 'NO_IMAGES')
+    );
+  } else {
+    selectedVolumes = selectionResult;
+  }
   
   const booksDir = path.dirname(__filename) + '/../books';
+  
+  // Показываем информацию о выбранных настройках
+  console.log('\n🔧 === ВЫБРАННЫЕ НАСТРОЙКИ ===');
+  if (isVolumeByVolumeMode) {
+    console.log('📚 Режим: Тома по отдельности');
+  } else {
+    console.log('📚 Режим: Один файл');
+  }
+  
+  if (isNoImagesMode) {
+    console.log('🖼️ Изображения: БЕЗ изображений (стабильно)');
+  } else {
+    console.log('🖼️ Изображения: С изображениями (fallback при ошибках)');
+  }
+  console.log('========================\n');
   
   if (isVolumeByVolumeMode) {
     console.log('\n🔥 === РЕЖИМ ОБРАБОТКИ ПО ТОМАМ ===');
@@ -51,7 +78,7 @@ const BOOK_ID = BOOK_NAME; // Используем для идентификац
     await $commonService.delay(1000);
     
     // Обрабатываем тома по одному
-    const createdFiles = await $bookService.processVolumesByOne(chaptersToDownload, BOOK_ID, bookInfo, booksDir);
+    const createdFiles = await $bookService.processVolumesByOne(chaptersToDownload, BOOK_ID, bookInfo, booksDir, isNoImagesMode);
     
     if (createdFiles.length > 0) {
       console.log('\n🎉 === ИТОГОВЫЙ РЕЗУЛЬТАТ ===');
@@ -127,7 +154,13 @@ const BOOK_ID = BOOK_NAME; // Используем для идентификац
     await $commonService.delay(1000)
     
     try {
-      const book = await $bookService.generateEpubFromData(epubBookOptions)
+      // Если выбран режим без изображений, используем специальный метод
+      if (isNoImagesMode) {
+        console.log('🚫 Создаем EPUB БЕЗ изображений (выбрано пользователем)');
+        const book = await $bookService.generateEpubFromDataNoImages(epubBookOptions)
+      } else {
+        const book = await $bookService.generateEpubFromData(epubBookOptions)
+      }
       
       console.log('\n✅ Книга успешно создана!')
       console.log(`📂 Путь к файлу: ${OUTPUT_BOOK_PATH}`)
@@ -172,4 +205,8 @@ const BOOK_ID = BOOK_NAME; // Используем для идентификац
       console.log('⚠️ Не удалось очистить файл прогресса (не критично)');
     }
   }
+  
+  // Завершаем процесс
+  console.log('🔚 Завершение работы...');
+  process.exit(0);
 })();

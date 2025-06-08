@@ -19,7 +19,6 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "nodemon --exec ts-node src/index.ts",
     "test": "node src/test.js"
   },
   "author": "Ilya Ryadinskii",
@@ -34,8 +33,6 @@
   "devDependencies": {
     "@types/epub-gen": "^0.1.0",
     "@types/node": "^20.7.0",
-    "@types/prompt-sync": "^4.2.1",
-    "nodemon": "^3.1.10",
-    "ts-node": "^10.9.2"
+    "@types/prompt-sync": "^4.2.1"
   }
 }
