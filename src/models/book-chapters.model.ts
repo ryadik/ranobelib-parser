@@ -1,5 +1,5 @@
 export type BookChaptersModel = {
-    id: number;
-    title: string;
-    link: string;
-}
+  id: number;
+  title: string;
+  link: string;
+};

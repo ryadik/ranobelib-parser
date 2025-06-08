@@ -1,7 +1,7 @@
 export type BookInfoModel = {
-    title: string;
-    author: string;
-    cover: string;
-    lang: string;
-    tocTitle: string;
-}
+  title: string;
+  author: string;
+  cover: string;
+  lang: string;
+  tocTitle: string;
+};
