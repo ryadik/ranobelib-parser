@@ -788,11 +788,10 @@ export class BookService implements BookServiceModel {
                         return `<img${improvedAttrs}>`;
                     });
                     
-                    // СТРАТЕГИЯ 4: Оборачиваем оставшиеся изображения в error-обработчики
+                    // СТРАТЕГИЯ 4: Оборачиваем оставшиеся изображения в контейнеры без лишнего текста
                     processedData = processedData.replace(/<img([^>]*?)>/gi, (match: string) => {
                         return `<div class="image-container">
                             ${match}
-                            <noscript>Изображение недоступно</noscript>
                         </div>`;
                     });
                 }
