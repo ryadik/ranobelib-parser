@@ -202,6 +202,21 @@ export class CommonService implements CommonServiceModel {
                     return selectedVolumes;
                 }
             }
+        } else {
+            // Для одного тома также предлагаем выбор изображений
+            console.log('\n🖼️ Выберите обработку изображений:');
+            console.log('1. 📷 Включить изображения (красивее, но риск ошибок ECONNRESET)');
+            console.log('2. 🚫 БЕЗ изображений (стабильнее, быстрее, меньше размер)');
+            
+            const imageChoice = prompt('Ваш выбор (1-2): ');
+            
+            if (imageChoice === '2') {
+                console.log('✅ Выбран режим БЕЗ изображений');
+                return ['NO_IMAGES', ...selectedVolumes];
+            } else {
+                console.log('✅ Выбран режим С изображениями');
+                return selectedVolumes;
+            }
         }
         
         return selectedVolumes;
