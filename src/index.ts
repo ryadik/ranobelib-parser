@@ -5,24 +5,122 @@ import * as path from "path";
 
 $commonService.userAlert();
 
-const PAGE_URL = $commonService.getBookURL()
-// Очищаем URL от параметров и получаем только название книги
-const BOOK_NAME_RAW = PAGE_URL.split('/').pop() || 'unknown-book'
-const BOOK_NAME = BOOK_NAME_RAW.split('?')[0] // Удаляем все после знака ?
-const BOOK_ID = BOOK_NAME; // Используем для идентификации в прогрессе
+// Проверяем наличие сохраненных прогрессов
+const progressFiles = $bookService.findProgressFiles();
+let PAGE_URL: string = '';
+let BOOK_NAME: string = '';
+let BOOK_ID: string = '';
+let bookInfo: any;
+let allChapters: any[] = [];
+let useProgress = false;
 
 (async () => {
-  console.log('\nПолучение информации о книге...')
+  // Если есть сохраненные прогрессы, предлагаем выбор
+  if (progressFiles.length > 0) {
+    console.log('\n💾 === НАЙДЕНЫ СОХРАНЕННЫЕ ПРОГРЕССЫ ===');
+    console.log(`Найдено ${progressFiles.length} сохраненных сессий:\n`);
+    
+    progressFiles.forEach((progress, index) => {
+      const data = progress.progressData;
+      const date = new Date(data.timestamp);
+      const dateStr = date.toLocaleString('ru-RU');
+      console.log(`   ${index + 1}. ${progress.bookId}`);
+      console.log(`      Загружено глав: ${data.completedCount}`);
+      console.log(`      Дата: ${dateStr}`);
+      if (data.url) {
+        console.log(`      URL: ${data.url}`);
+      }
+      console.log('');
+    });
+    
+    console.log('Выберите действие:');
+    console.log('1. Продолжить загрузку (быстрое продолжение)');
+    console.log('2. Начать новую загрузку');
+    
+    const prompt = require('prompt-sync')({ sigint: true });
+    const choice = prompt('Ваш выбор (1-2): ');
+    
+    if (choice === '1' && progressFiles.length > 0) {
+      // Выбираем первый прогресс (можно расширить для выбора конкретного)
+      const selectedProgress = progressFiles[0];
+      const progressData = selectedProgress.progressData;
+      
+      console.log(`\n✅ Продолжение загрузки: ${selectedProgress.bookId}`);
+      console.log(`📚 Загружено глав: ${progressData.completedCount}`);
+      
+      if (progressData.url && progressData.allChapters) {
+        // Полный быстрый режим - есть все данные
+        console.log(`🔄 Быстрое продолжение - используем сохраненные данные...\n`);
+        
+        PAGE_URL = progressData.url;
+        const BOOK_NAME_RAW = PAGE_URL.split('/').pop() || 'unknown-book';
+        BOOK_NAME = BOOK_NAME_RAW.split('?')[0];
+        BOOK_ID = selectedProgress.bookId;
+        allChapters = progressData.allChapters;
+        useProgress = true;
+        
+        // Получаем информацию о книге
+        console.log('Получение информации о книге...');
+        await $commonService.delay(1000);
+        bookInfo = await $bookService.getBookInfo(PAGE_URL);
+      } else {
+        // Старый формат прогресса - нужно получить URL и список глав
+        console.log(`⚠️ В сохраненном прогрессе нет URL или списка глав.`);
+        console.log(`📝 Нужно ввести URL для продолжения загрузки.\n`);
+        
+        const prompt = require('prompt-sync')({ sigint: true });
+        console.log('Введите URL книги для продолжения загрузки:');
+        console.log('Пример: https://ranobelib.me/ru/book/165329--kusuriya-no-hitorigoto-ln-novel');
+        const inputUrl = prompt('URL: ');
+        
+        if (!inputUrl || !inputUrl.trim()) {
+          console.log('❌ URL не введен. Начинаем новую загрузку.');
+          useProgress = false;
+        } else {
+          PAGE_URL = inputUrl.trim();
+          const BOOK_NAME_RAW = PAGE_URL.split('/').pop() || 'unknown-book';
+          BOOK_NAME = BOOK_NAME_RAW.split('?')[0];
+          BOOK_ID = selectedProgress.bookId; // Используем ID из прогресса
+          useProgress = true;
+          
+          console.log('\nПолучение информации о книге...');
+          await $commonService.delay(1000);
+          bookInfo = await $bookService.getBookInfo(PAGE_URL);
+          
+          console.log('\nПолучение списка глав...');
+          await $commonService.delay(1000);
+          allChapters = await $bookService.getChapters(PAGE_URL);
+          
+          console.log(`\n✅ Продолжаем загрузку с существующим прогрессом (${progressData.completedCount} глав уже загружено)`);
+        }
+      }
+    } else {
+      useProgress = false;
+    }
+  }
+  
+  // Если не используем прогресс, получаем данные заново
+  if (!useProgress) {
+    PAGE_URL = $commonService.getBookURL();
+    // Очищаем URL от параметров и получаем только название книги
+    const BOOK_NAME_RAW = PAGE_URL.split('/').pop() || 'unknown-book';
+    BOOK_NAME = BOOK_NAME_RAW.split('?')[0]; // Удаляем все после знака ?
+    BOOK_ID = BOOK_NAME; // Используем для идентификации в прогрессе
+    
+    console.log('\nПолучение информации о книге...');
+    await $commonService.delay(1000);
+    bookInfo = await $bookService.getBookInfo(PAGE_URL);
+    
+    console.log('\nПолучение списка глав...');
+    await $commonService.delay(1000);
+    allChapters = await $bookService.getChapters(PAGE_URL);
+  }
 
-  await $commonService.delay(1000)
-  const bookInfo = await $bookService.getBookInfo(PAGE_URL);
-
-  console.log('\nПолучение списка глав...')
-
-  await $commonService.delay(1000)
-  const allChapters = await $bookService.getChapters(PAGE_URL);
-
-  console.log(`\n📚 Найдено ${allChapters.length} глав`);
+  if (!useProgress) {
+    console.log(`\n📚 Найдено ${allChapters.length} глав`);
+  } else {
+    console.log(`\n📚 Используем сохраненный список из ${allChapters.length} глав`);
+  }
   
   // Даем пользователю выбрать тома для загрузки
   const selectionResult = $commonService.selectVolumesToDownload(allChapters);
@@ -122,7 +220,44 @@ const BOOK_ID = BOOK_NAME; // Используем для идентификац
     console.log('\nЗагрузка глав книги...')
 
     await $commonService.delay(1000)
-    const bookContent = await $bookService.getAllBookContent(chaptersToDownload, BOOK_ID);
+    const result = await $bookService.getAllBookContent(chaptersToDownload, BOOK_ID, PAGE_URL, allChapters);
+    
+    // Проверяем, есть ли ошибки 429
+    const hasRateLimitErrors = (result as any).hasRateLimitErrors || false;
+    const rateLimitErrorCount = (result as any).rateLimitErrorCount || 0;
+    const bookContent = (result as any).content || result; // Поддержка старого формата
+    
+    // Если были ошибки 429, не создаем книгу и не удаляем прогресс
+    if (hasRateLimitErrors) {
+        console.log('\n⚠️ === ОБНАРУЖЕНЫ ОШИБКИ 429 (Too Many Requests) ===');
+        console.log(`❌ Не удалось загрузить ${rateLimitErrorCount} глав из-за ограничения запросов сервером.`);
+        console.log(`💾 Прогресс сохранен. Загружено глав: ${bookContent.length} из ${chaptersToDownload.length}`);
+        console.log(`\n💡 РЕКОМЕНДАЦИЯ:`);
+        console.log(`   Запустите программу снова через некоторое время.`);
+        console.log(`   Программа автоматически продолжит загрузку с незагруженных глав.`);
+        console.log(`   Прогресс не будет потерян.`);
+        console.log(`\n🔚 Завершение работы без создания книги...`);
+        process.exit(0);
+    }
+    
+    // Проверяем, что все главы загружены
+    if (bookContent.length < chaptersToDownload.length) {
+        const missingChapters = chaptersToDownload.length - bookContent.length;
+        console.log(`\n⚠️ ВНИМАНИЕ: Загружено только ${bookContent.length} из ${chaptersToDownload.length} глав.`);
+        console.log(`   Отсутствует ${missingChapters} глав.`);
+        console.log(`\n💡 РЕКОМЕНДАЦИЯ:`);
+        console.log(`   Запустите программу снова, чтобы загрузить оставшиеся главы.`);
+        console.log(`   Прогресс сохранен и будет использован при следующем запуске.`);
+        console.log(`\n❓ Создать книгу с неполным содержимым? (y/n)`);
+        
+        const prompt = require('prompt-sync')({ sigint: true });
+        const answer = prompt('');
+        
+        if (answer?.toLowerCase() !== 'y' && answer?.toLowerCase() !== 'yes' && answer?.toLowerCase() !== 'да') {
+            console.log(`\n🔚 Завершение работы без создания книги...`);
+            process.exit(0);
+        }
+    }
 
     // Определяем имя файла с указанием выбранных томов
     let outputFileName = BOOK_NAME;
@@ -193,16 +328,21 @@ const BOOK_ID = BOOK_NAME; // Используем для идентификац
       }
     }
     
-    // Очищаем файл прогресса после успешного завершения
-    try {
-      const fs = require('fs');
-      const progressFile = path.join(process.cwd(), 'progress', `${BOOK_ID}_progress.json`);
-      if (fs.existsSync(progressFile)) {
-        fs.unlinkSync(progressFile);
-        console.log('🗑️ Файл прогресса очищен');
+    // Очищаем файл прогресса только если все главы успешно загружены
+    if (bookContent.length === chaptersToDownload.length) {
+      try {
+        const fs = require('fs');
+        const progressFile = path.join(process.cwd(), 'progress', `${BOOK_ID}_progress.json`);
+        if (fs.existsSync(progressFile)) {
+          fs.unlinkSync(progressFile);
+          console.log('🗑️ Файл прогресса очищен');
+        }
+      } catch (error) {
+        console.log('⚠️ Не удалось очистить файл прогресса (не критично)');
       }
-    } catch (error) {
-      console.log('⚠️ Не удалось очистить файл прогресса (не критично)');
+    } else {
+      console.log(`\n💾 Файл прогресса сохранен (загружено ${bookContent.length} из ${chaptersToDownload.length} глав)`);
+      console.log(`   При следующем запуске программа продолжит с незагруженных глав.`);
     }
   }
   

@@ -21,11 +21,45 @@ export class BookService implements BookServiceModel {
   ) {}
 
     public async getBookInfo(url: string): Promise<BookInfoModel> {
+        // Retry механизм для обработки ошибок 429
+        const maxRetries = 3;
+        let currentTry = 1;
+        let browser: any;
+        let page: any;
+        
+        while (currentTry <= maxRetries) {
+            try {
+                const browserData = await this.$browserService.startBrowser();
+                browser = browserData.browser;
+                page = browserData.page;
 
-
-        const { browser, page } = await this.$browserService.startBrowser();
-
-        await this.$browserService.gotoPage(page, url)
+                await this.$browserService.gotoPage(page, url);
+                break; // Успешно загрузили страницу, выходим из цикла
+                
+            } catch (error: any) {
+                const errorMessage = (error instanceof Error ? error.message : String(error)).toLowerCase();
+                const errorStatus = error.statusCode;
+                const isRateLimitError = errorStatus === 429 || errorMessage.includes('429') || errorMessage.includes('too many requests');
+                
+                if (browser) {
+                    try {
+                        await this.$browserService.closeBrowser(browser);
+                    } catch (closeError) {
+                        // Игнорируем ошибки закрытия
+                    }
+                }
+                
+                if (isRateLimitError && currentTry < maxRetries) {
+                    const delaySeconds = 30 * Math.pow(2, currentTry - 1);
+                    console.log(`⏸️ Ошибка 429 при получении информации о книге. Ожидание ${delaySeconds} секунд...`);
+                    await this.showCountdown(delaySeconds);
+                    currentTry++;
+                    continue;
+                } else {
+                    throw error; // Прокидываем ошибку дальше, если не 429 или исчерпаны попытки
+                }
+            }
+        }
 
         // Паршу инфу по книге на ее главной странице
         const bookInfo = await page.evaluate(() => {
@@ -111,7 +145,7 @@ export class BookService implements BookServiceModel {
     public async getChapters(url: string): Promise<BookChaptersModel[]> {
         const { browser, page } = await this.$browserService.startBrowser();
 
-        // Проверяем доступность основного URL
+        // Проверяем доступность основного URL с обработкой ошибки 429
         try {
             await this.$browserService.gotoPage(page, url);
             
@@ -131,21 +165,50 @@ export class BookService implements BookServiceModel {
                 console.log(`⚠️ Обнаружена ошибка на странице: ${pageContent.errorText}`);
                 console.log('Попробуем альтернативные способы доступа...');
             }
-        } catch (error) {
-            console.log(`⚠️ Не удалось загрузить основной URL: ${error}`);
-            console.log('Попробуем продолжить с API...');
+        } catch (error: any) {
+            const errorMessage = (error instanceof Error ? error.message : String(error)).toLowerCase();
+            const errorStatus = error.statusCode;
+            const isRateLimitError = errorStatus === 429 || errorMessage.includes('429') || errorMessage.includes('too many requests');
+            
+            if (isRateLimitError) {
+                console.log(`⚠️ Ошибка 429 при проверке URL. Закрываем браузер и пробуем продолжить с API...`);
+                try {
+                    await this.$browserService.closeBrowser(browser);
+                } catch (closeError) {
+                    // Игнорируем ошибки закрытия
+                }
+            } else {
+                console.log(`⚠️ Не удалось загрузить основной URL: ${error}`);
+                console.log('Попробуем продолжить с API...');
+            }
         }
 
         // Извлекаем ID книги из URL
-        const bookIdMatch = url.match(/\/(\d+[^\/]*)/);
+        // Формат URL: https://ranobelib.me/ru/book/165329--kusuriya-no-hitorigoto-ln-novel?section=chapters&ui=3317054
+        // Нужно извлечь: 165329--kusuriya-no-hitorigoto-ln-novel
+        const urlWithoutParams = url.split('?')[0];
+        const bookIdMatch = urlWithoutParams.match(/\/book\/([^\/\?]+)/);
         if (!bookIdMatch) {
-            await this.$browserService.closeBrowser(browser);
-            this.$errorService.throwError(ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND, 'ID книги в URL');
-            return [];
+            // Пробуем альтернативный формат без /book/
+            const altMatch = urlWithoutParams.match(/\/(\d+[^\/\?]*)/);
+            if (!altMatch) {
+                await this.$browserService.closeBrowser(browser);
+                this.$errorService.throwError(ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND, 'ID книги в URL');
+                return [];
+            }
+            var bookId = altMatch[1];
+        } else {
+            var bookId = bookIdMatch[1];
         }
         
-        const bookId = bookIdMatch[1];
+        // Убираем возможные параметры, которые могли попасть в ID
+        bookId = bookId.split('?')[0].split('&')[0];
         console.log(`Найден ID книги: ${bookId}`);
+        
+        // Также извлекаем числовой ID для API (если есть)
+        const numericIdMatch = bookId.match(/^(\d+)/);
+        const numericBookId = numericIdMatch ? numericIdMatch[1] : bookId;
+        console.log(`Числовой ID для API: ${numericBookId}`);
 
         // Сразу переходим на специальную страницу со списком всех глав
         console.log('Переходим на страницу со списком всех глав...');
@@ -161,24 +224,91 @@ export class BookService implements BookServiceModel {
         let chaptersWithTitles: BookChaptersModel[] = [];
         
         try {
-            await this.$browserService.gotoPage(page, chapterPageUrl);
-            console.log(`Загружаем страницу: ${chapterPageUrl}`);
+            // Пытаемся загрузить страницу с обработкой ошибки 429
+            let pageLoaded = false;
+            let retryCount = 0;
+            const maxRetries = 3;
+            
+            while (!pageLoaded && retryCount < maxRetries) {
+                try {
+                    await this.$browserService.gotoPage(page, chapterPageUrl);
+                    console.log(`Загружаем страницу: ${chapterPageUrl}`);
+                    pageLoaded = true;
+                } catch (error: any) {
+                    const errorMessage = (error instanceof Error ? error.message : String(error)).toLowerCase();
+                    const errorStatus = error.statusCode;
+                    const isRateLimitError = errorStatus === 429 || errorMessage.includes('429') || errorMessage.includes('too many requests');
+                    
+                    if (isRateLimitError && retryCount < maxRetries - 1) {
+                        retryCount++;
+                        const delaySeconds = 30 * Math.pow(2, retryCount - 1);
+                        console.log(`⏸️ Ошибка 429 при загрузке страницы глав. Ожидание ${delaySeconds} секунд...`);
+                        await this.showCountdown(delaySeconds);
+                        continue;
+                    } else {
+                        throw error;
+                    }
+                }
+            }
             
             // Проверяем, какой URL на самом деле загрузился
             const actualUrl = await page.url();
             console.log(`Фактический URL в браузере: ${actualUrl}`);
             
             // Ждем загрузки страницы
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(3000);
+            
+            // Прокручиваем страницу вниз, чтобы загрузить все главы (если они подгружаются динамически)
+            console.log('Прокручиваем страницу для загрузки всех глав...');
+            try {
+                await page.evaluate(async () => {
+                    await new Promise<void>((resolve) => {
+                        let lastHeight = document.body.scrollHeight;
+                        let attempts = 0;
+                        const maxAttempts = 20; // Максимум 20 попыток
+                        
+                        const scrollDown = () => {
+                            window.scrollTo(0, document.body.scrollHeight);
+                            attempts++;
+                            
+                            setTimeout(() => {
+                                const newHeight = document.body.scrollHeight;
+                                if (newHeight === lastHeight || attempts >= maxAttempts) {
+                                    resolve();
+                                } else {
+                                    lastHeight = newHeight;
+                                    scrollDown();
+                                }
+                            }, 500);
+                        };
+                        
+                        scrollDown();
+                    });
+                });
+                await page.waitForTimeout(1000);
+                console.log('Прокрутка завершена');
+            } catch (scrollError) {
+                console.log(`⚠️ Ошибка при прокрутке: ${scrollError}`);
+            }
             
             // Попробуем получить главы через API
             console.log('Попытка получить главы через API...');
             
-            const apiUrl = `https://api.cdnlibs.org/api/manga/${bookId}/chapters`;
-            console.log(`API URL: ${apiUrl}`);
+            // Пробуем оба варианта ID: полный и числовой
+            const numericIdMatch = bookId.match(/^(\d+)/);
+            const numericBookId = numericIdMatch ? numericIdMatch[1] : bookId;
+            
+            // Пробуем сначала с числовым ID
+            let apiUrl = `https://api.cdnlibs.org/api/manga/${numericBookId}/chapters`;
+            console.log(`API URL (числовой ID): ${apiUrl}`);
+            
+            // Если не сработает, попробуем с полным ID
+            const apiUrlFull = `https://api.cdnlibs.org/api/manga/${bookId}/chapters`;
+            console.log(`API URL (полный ID): ${apiUrlFull}`);
             
             // Делаем запрос к API через страницу (чтобы использовать cookies и headers браузера)
-            const chaptersData = await page.evaluate(async (apiUrl) => {
+            // Пробуем сначала с числовым ID, потом с полным
+            let chaptersData = await page.evaluate(async (apiUrl) => {
                 try {
                     const response = await fetch(apiUrl, {
                         method: 'GET',
@@ -198,9 +328,35 @@ export class BookService implements BookServiceModel {
                 }
             }, apiUrl);
             
+            // Если не сработало с числовым ID, пробуем с полным
+            if (!chaptersData || !chaptersData.data || !Array.isArray(chaptersData.data) || chaptersData.data.length === 0) {
+                console.log('Пробуем API с полным ID...');
+                chaptersData = await page.evaluate(async (apiUrl) => {
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json',
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            }
+                        });
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        const data = await response.json();
+                        return data;
+                    } catch (error) {
+                        console.log('Ошибка API запроса:', error);
+                        return null;
+                    }
+                }, apiUrlFull);
+            }
+            
             if (chaptersData && chaptersData.data && Array.isArray(chaptersData.data)) {
                 console.log(`Получено ${chaptersData.data.length} глав через API`);
                 
+                // Отладочный вывод: показываем все главы 16 тома из API
+                const volume16FromAPI = chaptersData.data.filter((ch: any) => ch.volume === 16);
                 // Преобразуем данные API в нужный формат
                 chaptersWithTitles = chaptersData.data.map((chapter: any, index: number) => {
                     // Строим URL главы на основе данных из API
@@ -256,16 +412,6 @@ export class BookService implements BookServiceModel {
                 
                 console.log(`Обработано ${chaptersWithTitles.length} глав из API`);
                 
-                if (chaptersWithTitles.length > 0) {
-                    // Показываем информацию о первой и последней главе
-                    const first = chaptersWithTitles[0];
-                    const last = chaptersWithTitles[chaptersWithTitles.length - 1];
-                    console.log(`Первая глава: "${first.title}"`);
-                    console.log(`Последняя глава: "${last.title}"`);
-                    console.log(`Исходный cleanUrl: ${cleanUrl}`);
-                    console.log(`Обработанный baseUrl: ${cleanUrl.replace('/book/', '/')}`);
-                    console.log(`Пример URL: ${first.link}`);
-                }
             }
             
             // Если API не сработал, пробуем парсить DOM как раньше
@@ -286,8 +432,6 @@ export class BookService implements BookServiceModel {
                         bodyText: document.body.innerText.substring(0, 200) // первые 200 символов
                     };
                 });
-                
-                console.log(`Отладка страницы: ${JSON.stringify(pageInfo, null, 2)}`);
                 
                 // Ищем все ссылки на главы на странице /chapter
                 chaptersWithTitles = await page.evaluate(() => {
@@ -400,6 +544,30 @@ export class BookService implements BookServiceModel {
         }
 
         return chaptersWithTitles;
+    }
+
+    // Вспомогательная функция для отображения обратного таймера
+    private async showCountdown(seconds: number): Promise<void> {
+        return new Promise((resolve) => {
+            let remaining = seconds;
+            
+            // Выводим начальное значение
+            process.stdout.write(`\r⏳ Ожидание: ${remaining} секунд...`);
+            
+            const interval = setInterval(() => {
+                remaining--;
+                
+                if (remaining > 0) {
+                    // Обновляем строку с таймером
+                    process.stdout.write(`\r⏳ Ожидание: ${remaining} секунд...`);
+                } else {
+                    // Завершаем таймер
+                    process.stdout.write(`\r✅ Ожидание завершено!                    \n`);
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 1000);
+        });
     }
 
     private async getChapterContent(url: string): Promise<string> {
@@ -518,20 +686,43 @@ export class BookService implements BookServiceModel {
                 
                 // Проверяем тип ошибки
                 const errorMessage = (error instanceof Error ? error.message : String(error)).toLowerCase();
+                const errorStatus = (error as any).statusCode;
+                
+                // Специальная обработка для ошибки 429 (Too Many Requests)
+                const isRateLimitError = errorStatus === 429 || errorMessage.includes('429') || errorMessage.includes('too many requests');
+                
+                // Обычные ошибки соединения
                 const isConnectionError = errorMessage.includes('econnreset') || 
                                         errorMessage.includes('aborted') || 
                                         errorMessage.includes('timeout') ||
                                         errorMessage.includes('connection') ||
                                         errorMessage.includes('network');
                 
-                if (isConnectionError && currentTry < maxRetries) {
+                if (isRateLimitError && currentTry < maxRetries) {
+                    // Для 429 используем экспоненциальную задержку: 30, 60, 120 секунд
+                    const delaySeconds = 30 * Math.pow(2, currentTry - 1);
+                    console.log(`⏸️ Ошибка 429 (Too Many Requests). Ожидание ${delaySeconds} секунд перед повторной попыткой...`);
+                    console.log(`💡 Сервер ограничивает количество запросов. Пожалуйста, подождите.`);
+                    
+                    // Показываем обратный таймер
+                    await this.showCountdown(delaySeconds);
+                    
+                    currentTry++;
+                    continue;
+                } else if (isConnectionError && currentTry < maxRetries) {
                     console.log(`🔄 Ошибка соединения. Повторная попытка через ${currentTry * 2} секунд...`);
                     await this.$commonService.delay(currentTry * 2000); // Увеличиваем задержку с каждой попыткой
                     currentTry++;
                     continue;
                 } else {
-                    console.log(`❌ Не удалось загрузить главу после ${maxRetries} попыток: ${url}`);
-                    return ''; // Возвращаем пустую строку вместо ошибки
+                    if (isRateLimitError) {
+                        console.log(`❌ Превышен лимит запросов (429) после ${maxRetries} попыток. Попробуйте позже.`);
+                        // Возвращаем специальный маркер для ошибки 429
+                        return 'RATE_LIMIT_ERROR';
+                    } else {
+                        console.log(`❌ Не удалось загрузить главу после ${maxRetries} попыток: ${url}`);
+                    }
+                    return ''; // Возвращаем пустую строку для других ошибок
                 }
             }
         }
@@ -539,9 +730,13 @@ export class BookService implements BookServiceModel {
         return ''; // Fallback возврат пустой строки
     }
 
-    public async getAllBookContent(bookChapters: BookChaptersModel[], bookId: string): Promise<BookContentModel[]> {
+    public async getAllBookContent(bookChapters: BookChaptersModel[], bookId: string, url?: string, allChapters?: BookChaptersModel[]): Promise<BookContentModel[]> {
+        const currentUrl = url || ''; // Сохраняем URL для использования в saveProgress
+        const chaptersToSave = allChapters || bookChapters; // Используем полный список, если передан
+        
         // Загружаем предыдущий прогресс если есть
         let bookContent = this.loadProgress(bookId);
+        
         const completedChapterIds = new Set(bookContent.map(ch => ch.id));
         
         // Фильтруем только те главы, которые еще не загружены
@@ -557,11 +752,11 @@ export class BookService implements BookServiceModel {
             return bookContent;
         }
         
-        console.log(`\n📊 Первые 5 оставшихся глав: ${remainingChapters.slice(0, 5).map(ch => ch.title).join(', ')}`);
-        
         let successCount = bookContent.length;
         let errorCount = 0;
+        let rateLimitErrorCount = 0; // Счетчик ошибок 429
         let totalSize = bookContent.reduce((sum, ch) => sum + ch.data.length, 0);
+        const rateLimitChapters: BookChaptersModel[] = []; // Список глав с ошибками 429 для повторной попытки
 
         // Прохожусь по оставшимся главам
         for (let i = 0; i < remainingChapters.length; i++) {
@@ -570,6 +765,24 @@ export class BookService implements BookServiceModel {
             try {
                 console.log(`\n📖 Загружаем главу ${successCount + 1}/${bookChapters.length}: "${chapter.title}"`);
                 const content = await this.getChapterContent(chapter.link);
+                
+                // Проверяем, не является ли это ошибкой 429
+                if (content === 'RATE_LIMIT_ERROR') {
+                    console.log(`⏸️ Глава "${chapter.title}" не загружена из-за ошибки 429 (Too Many Requests)`);
+                    console.log(`💾 Добавляем в список для повторной попытки в конце.`);
+                    errorCount++;
+                    rateLimitErrorCount++;
+                    rateLimitChapters.push(chapter); // Сохраняем главу для повторной попытки
+                    
+                    // Сохраняем прогресс сразу после ошибки 429, чтобы не потерять уже загруженные главы
+                    this.saveProgress(bookId, bookContent, currentUrl, chaptersToSave);
+                    console.log(`📊 Текущий прогресс: ${successCount}/${bookChapters.length} глав загружено`);
+                    
+                    // Увеличиваем задержку перед следующей главой
+                    const baseDelay = 5000; // Увеличиваем базовую задержку после 429
+                    await this.$commonService.delay(baseDelay);
+                    continue; // Переходим к следующей главе
+                }
                 
                 if (content && content.trim().length > 0) {
                     const cacheData: BookContentModel = {
@@ -593,36 +806,133 @@ export class BookService implements BookServiceModel {
                 
                 // Сохраняем прогресс каждые 5 глав
                 if ((successCount) % 5 === 0) {
-                    this.saveProgress(bookId, bookContent);
+                    this.saveProgress(bookId, bookContent, currentUrl, chaptersToSave);
                     const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(1);
                     console.log(`\n📊 Прогресс: ${successCount}/${bookChapters.length} глав | Ошибок: ${errorCount} | Размер: ${totalSizeMB} МБ`);
                 }
                 
-                await this.$commonService.delay(2000);
+                // Увеличиваем задержку между запросами, чтобы избежать 429 ошибок
+                // Базовая задержка 3 секунды, увеличивается при ошибках
+                const baseDelay = 3000;
+                const delay = errorCount > 0 ? baseDelay * (1 + errorCount * 0.5) : baseDelay;
+                await this.$commonService.delay(delay);
                 
             } catch (error) {
                 console.log(`❌ Ошибка при загрузке главы "${chapter.title}": ${error}`);
                 errorCount++;
                 
-                // Сохраняем прогресс при ошибке
-                this.saveProgress(bookId, bookContent);
+                // Сохраняем прогресс при ошибке, чтобы не потерять уже загруженные главы
+                this.saveProgress(bookId, bookContent, currentUrl, chaptersToSave);
+                console.log(`💾 Прогресс сохранен. При следующем запуске программа попробует загрузить эту главу снова.`);
             }
         }
         
         // Финальное сохранение прогресса
-        this.saveProgress(bookId, bookContent);
+        this.saveProgress(bookId, bookContent, currentUrl, chaptersToSave);
+        
+        // Если есть главы с ошибками 429, пытаемся загрузить их еще раз
+        if (rateLimitChapters.length > 0) {
+            console.log(`\n🔄 === ПОВТОРНАЯ ПОПЫТКА ЗАГРУЗКИ ГЛАВ С ОШИБКОЙ 429 ===`);
+            console.log(`📋 Найдено ${rateLimitChapters.length} глав для повторной загрузки`);
+            console.log(`⏱️ Делаем паузу 10 секунд перед повторной попыткой...`);
+            await this.$commonService.delay(10000);
+            
+            let retrySuccessCount = 0;
+            let retryErrorCount = 0;
+            
+            for (let i = 0; i < rateLimitChapters.length; i++) {
+                const chapter = rateLimitChapters[i];
+                
+                try {
+                    console.log(`\n🔄 Повторная попытка ${i + 1}/${rateLimitChapters.length}: "${chapter.title}"`);
+                    const content = await this.getChapterContent(chapter.link);
+                    
+                    if (content === 'RATE_LIMIT_ERROR') {
+                        console.log(`❌ Глава "${chapter.title}" все еще недоступна из-за ошибки 429`);
+                        retryErrorCount++;
+                        // Увеличиваем задержку перед следующей попыткой
+                        await this.$commonService.delay(5000);
+                        continue;
+                    }
+                    
+                    if (content && content.trim().length > 0) {
+                        const cacheData: BookContentModel = {
+                            data: content,
+                            id: chapter.id,
+                            title: chapter.title,
+                        }
+                        
+                        bookContent.push(cacheData);
+                        successCount++;
+                        retrySuccessCount++;
+                        totalSize += content.length;
+                        
+                        const contentSizeKB = (content.length / 1024).toFixed(1);
+                        console.log(`✅ Глава успешно загружена при повторной попытке (${contentSizeKB} КБ)`);
+                        
+                        // Удаляем из списка для повторной попытки
+                        rateLimitChapters.splice(i, 1);
+                        i--; // Уменьшаем индекс, так как удалили элемент
+                        
+                        // Сохраняем прогресс после каждой успешной загрузки
+                        this.saveProgress(bookId, bookContent, currentUrl, chaptersToSave);
+                    } else {
+                        console.log(`❌ Глава пустая или не загрузилась при повторной попытке`);
+                        retryErrorCount++;
+                    }
+                    
+                    // Увеличиваем задержку между запросами
+                    await this.$commonService.delay(5000);
+                    
+                } catch (error) {
+                    console.log(`❌ Ошибка при повторной загрузке главы "${chapter.title}": ${error}`);
+                    retryErrorCount++;
+                    await this.$commonService.delay(5000);
+                }
+            }
+            
+            // Обновляем счетчик ошибок 429 после повторной попытки
+            rateLimitErrorCount = rateLimitChapters.length;
+            
+            console.log(`\n📊 Статистика повторной попытки:`);
+            console.log(`   ✅ Успешно загружено: ${retrySuccessCount}`);
+            console.log(`   ❌ Все еще недоступно: ${retryErrorCount}`);
+            
+            if (rateLimitChapters.length > 0) {
+                console.log(`\n⚠️ После повторной попытки осталось ${rateLimitChapters.length} глав с ошибкой 429`);
+            }
+        }
+        
+        // Финальное сохранение прогресса после повторной попытки
+        this.saveProgress(bookId, bookContent, currentUrl, chaptersToSave);
         
         console.log(`\n📋 Итоговая статистика:`);
         console.log(`   Всего глав найдено: ${bookChapters.length}`);
         console.log(`   Успешно загружено: ${successCount}`);
         console.log(`   Ошибок: ${errorCount}`);
+        if (rateLimitErrorCount > 0) {
+            console.log(`   ⚠️ Ошибок 429 (Too Many Requests): ${rateLimitErrorCount}`);
+            console.log(`   💡 Главы с ошибкой 429 не были добавлены в прогресс.`);
+            console.log(`   💡 При следующем запуске программа попробует загрузить их снова.`);
+        }
         console.log(`   Процент успеха: ${((successCount / bookChapters.length) * 100).toFixed(1)}%`);
         console.log(`   Общий размер контента: ${(totalSize / (1024 * 1024)).toFixed(1)} МБ`);
+        
+        if (rateLimitErrorCount > 0) {
+            console.log(`\n💾 Прогресс сохранен. Запустите программу снова, чтобы загрузить оставшиеся главы.`);
+        }
 
         // Сортирую главы по порядку
         bookContent.sort((a, b) => a.id - b.id);
 
-        return bookContent;
+        // Возвращаем объект с контентом и информацией об ошибках
+        return {
+            content: bookContent,
+            hasRateLimitErrors: rateLimitErrorCount > 0,
+            rateLimitErrorCount: rateLimitErrorCount,
+            totalChapters: bookChapters.length,
+            loadedChapters: successCount
+        } as any;
     }
 
     // Улучшенная генерация EPUB с переходом на режим без изображений при ошибках
@@ -904,7 +1214,7 @@ export class BookService implements BookServiceModel {
     }
 
     // Метод для сохранения прогресса
-    private saveProgress(bookId: string, completedChapters: BookContentModel[]): void {
+    private saveProgress(bookId: string, completedChapters: BookContentModel[], url?: string, allChapters?: BookChaptersModel[]): void {
         try {
             const progressDir = path.join(process.cwd(), 'progress');
             if (!fs.existsSync(progressDir)) {
@@ -912,17 +1222,53 @@ export class BookService implements BookServiceModel {
             }
             
             const progressFile = path.join(progressDir, `${bookId}_progress.json`);
-            const progressData = {
+            const progressData: any = {
                 timestamp: new Date().toISOString(),
                 completedCount: completedChapters.length,
                 chapters: completedChapters
             };
+            
+            // Сохраняем URL и список глав для быстрого продолжения
+            if (url) {
+                progressData.url = url;
+            }
+            if (allChapters) {
+                progressData.allChapters = allChapters;
+            }
             
             fs.writeFileSync(progressFile, JSON.stringify(progressData, null, 2));
             console.log(`💾 Прогресс сохранен: ${completedChapters.length} глав в ${progressFile}`);
         } catch (error) {
             console.log(`⚠️ Не удалось сохранить прогресс: ${error}`);
         }
+    }
+    
+    // Публичный метод для поиска всех файлов прогресса
+    public findProgressFiles(): Array<{bookId: string, filePath: string, progressData: any}> {
+        const progressFiles: Array<{bookId: string, filePath: string, progressData: any}> = [];
+        try {
+            const progressDir = path.join(process.cwd(), 'progress');
+            if (!fs.existsSync(progressDir)) {
+                return progressFiles;
+            }
+            
+            const files = fs.readdirSync(progressDir);
+            for (const file of files) {
+                if (file.endsWith('_progress.json') && !file.includes('_том_')) {
+                    const filePath = path.join(progressDir, file);
+                    try {
+                        const progressData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                        const bookId = file.replace('_progress.json', '');
+                        progressFiles.push({ bookId, filePath, progressData });
+                    } catch (error) {
+                        // Игнорируем поврежденные файлы
+                    }
+                }
+            }
+        } catch (error) {
+            console.log(`⚠️ Ошибка при поиске файлов прогресса: ${error}`);
+        }
+        return progressFiles;
     }
 
     // Метод для загрузки прогресса
@@ -940,26 +1286,53 @@ export class BookService implements BookServiceModel {
         return [];
     }
 
+    // Вспомогательный метод для извлечения номера тома из главы
+    public getVolumeFromChapter(chapter: BookChaptersModel): number | null {
+        // Сначала пробуем извлечь из названия
+        const titleMatch = chapter.title.match(/Том (\d+)/);
+        if (titleMatch) {
+            return parseInt(titleMatch[1]);
+        }
+        
+        // Если не получилось, пробуем извлечь из URL
+        const urlMatch = chapter.link.match(/\/v(\d+)\//);
+        if (urlMatch) {
+            return parseInt(urlMatch[1]);
+        }
+        
+        return null;
+    }
+
     // Метод для фильтрации глав по выбранным томам
     public filterChaptersByVolumes(chapters: BookChaptersModel[], selectedVolumes: number[]): BookChaptersModel[] {
         // Специальная обработка для ограничения по количеству глав
         if (selectedVolumes.length === 2 && selectedVolumes[0] === -1) {
             const maxChapters = selectedVolumes[1];
             console.log(`🔢 Ограничиваем до ${maxChapters} глав`);
-            return chapters.slice(0, maxChapters);
+            const limitedChapters = chapters.slice(0, maxChapters);
+            // Пересчитываем ID после ограничения
+            limitedChapters.forEach((chapter, index) => {
+                chapter.id = index;
+            });
+            return limitedChapters;
         }
         
         // Фильтруем по выбранным томам
         const filteredChapters = chapters.filter(chapter => {
-            const volumeMatch = chapter.title.match(/Том (\d+)/);
-            if (volumeMatch) {
-                const volume = parseInt(volumeMatch[1]);
+            const volume = this.getVolumeFromChapter(chapter);
+            if (volume !== null) {
                 return selectedVolumes.includes(volume);
             }
             return false;
         });
         
+        // Пересчитываем ID после фильтрации, чтобы они начинались с 0
+        filteredChapters.forEach((chapter, index) => {
+            chapter.id = index;
+        });
+        
         console.log(`📚 Отфильтровано ${filteredChapters.length} глав из ${chapters.length} по выбранным томам`);
+        
         return filteredChapters;
     }
 
@@ -968,9 +1341,8 @@ export class BookService implements BookServiceModel {
         const volumeGroups = new Map<number, BookChaptersModel[]>();
         
         chapters.forEach(chapter => {
-            const volumeMatch = chapter.title.match(/Том (\d+)/);
-            if (volumeMatch) {
-                const volume = parseInt(volumeMatch[1]);
+            const volume = this.getVolumeFromChapter(chapter);
+            if (volume !== null) {
                 if (!volumeGroups.has(volume)) {
                     volumeGroups.set(volume, []);
                 }
@@ -978,7 +1350,7 @@ export class BookService implements BookServiceModel {
             }
         });
         
-        // Сортируем главы внутри каждого тома
+        // Сортируем главы внутри каждого тома и пересчитываем ID
         volumeGroups.forEach((chapters, volume) => {
             chapters.sort((a, b) => {
                 const getChapterNumber = (title: string) => {
@@ -986,6 +1358,11 @@ export class BookService implements BookServiceModel {
                     return match ? parseFloat(match[1]) : 0;
                 };
                 return getChapterNumber(a.title) - getChapterNumber(b.title);
+            });
+            
+            // Пересчитываем ID для глав внутри каждого тома, чтобы они начинались с 0
+            chapters.forEach((chapter, index) => {
+                chapter.id = index;
             });
         });
         
@@ -1007,16 +1384,45 @@ export class BookService implements BookServiceModel {
             
             console.log(`\n🔥 === ОБРАБОТКА ТОМА ${volume} (${i + 1}/${volumes.length}) ===`);
             console.log(`📖 Глав в томе: ${volumeChapters.length}`);
-            console.log(`📝 Первая глава: "${volumeChapters[0].title}"`);
-            console.log(`📝 Последняя глава: "${volumeChapters[volumeChapters.length - 1].title}"`);
+            if (volumeChapters.length === 0) {
+                console.log(`⚠️ В томе ${volume} нет глав!`);
+                continue;
+            }
             
             try {
                 // Загружаем контент глав этого тома
                 console.log(`\n📥 Загружаем главы тома ${volume}...`);
-                const volumeContent = await this.getAllBookContent(volumeChapters, `${bookId}_том_${volume}`);
+                
+                // Для томов URL не критичен, передаем пустую строку
+                const volumeResult = await this.getAllBookContent(volumeChapters, `${bookId}_том_${volume}`, '');
+                
+                // Обрабатываем новый формат возвращаемого значения
+                const volumeContent = (volumeResult as any).content || volumeResult;
+                const hasRateLimitErrors = (volumeResult as any).hasRateLimitErrors || false;
+                const rateLimitErrorCount = (volumeResult as any).rateLimitErrorCount || 0;
+                
+                // Если были ошибки 429, не создаем EPUB для этого тома
+                if (hasRateLimitErrors) {
+                    console.log(`\n⚠️ === ОШИБКИ 429 В ТОМЕ ${volume} ===`);
+                    console.log(`❌ Не удалось загрузить ${rateLimitErrorCount} глав из-за ограничения запросов сервером.`);
+                    console.log(`💾 Прогресс сохранен. Загружено глав: ${volumeContent.length} из ${volumeChapters.length}`);
+                    console.log(`💡 Запустите программу снова, чтобы загрузить оставшиеся главы тома ${volume}.`);
+                    console.log(`⏭️ Пропускаем создание EPUB для тома ${volume} и переходим к следующему тому.`);
+                    continue;
+                }
                 
                 if (volumeContent.length === 0) {
                     console.log(`⚠️ Том ${volume} пустой, пропускаем`);
+                    continue;
+                }
+                
+                // Проверяем, что все главы загружены
+                if (volumeContent.length < volumeChapters.length) {
+                    const missingChapters = volumeChapters.length - volumeContent.length;
+                    console.log(`\n⚠️ ВНИМАНИЕ: В томе ${volume} загружено только ${volumeContent.length} из ${volumeChapters.length} глав.`);
+                    console.log(`   Отсутствует ${missingChapters} глав.`);
+                    console.log(`💡 РЕКОМЕНДАЦИЯ: Запустите программу снова для загрузки оставшихся глав.`);
+                    console.log(`⏭️ Пропускаем создание EPUB для тома ${volume} и переходим к следующему тому.`);
                     continue;
                 }
                 
@@ -1071,16 +1477,20 @@ export class BookService implements BookServiceModel {
                 console.log(`✅ Том ${volume} успешно сохранен: ${volumeFileName}.epub`);
                 console.log(`📊 Глав в томе: ${volumeContent.length}`);
                 
-                // Очищаем прогресс этого тома
-                try {
-                    const fs = require('fs');
-                    const progressFile = path.join(process.cwd(), 'progress', `${bookId}_том_${volume}_progress.json`);
-                    if (fs.existsSync(progressFile)) {
-                        fs.unlinkSync(progressFile);
-                        console.log(`🗑️ Прогресс тома ${volume} очищен`);
+                // Очищаем прогресс этого тома только если все главы загружены
+                if (volumeContent.length === volumeChapters.length) {
+                    try {
+                        const fs = require('fs');
+                        const progressFile = path.join(process.cwd(), 'progress', `${bookId}_том_${volume}_progress.json`);
+                        if (fs.existsSync(progressFile)) {
+                            fs.unlinkSync(progressFile);
+                            console.log(`🗑️ Прогресс тома ${volume} очищен`);
+                        }
+                    } catch (error) {
+                        console.log(`⚠️ Не удалось очистить прогресс тома ${volume}`);
                     }
-                } catch (error) {
-                    console.log(`⚠️ Не удалось очистить прогресс тома ${volume}`);
+                } else {
+                    console.log(`💾 Прогресс тома ${volume} сохранен (загружено ${volumeContent.length} из ${volumeChapters.length} глав)`);
                 }
                 
                 // Небольшая пауза между томами
