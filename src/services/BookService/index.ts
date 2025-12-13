@@ -922,7 +922,7 @@ export class BookService implements BookServiceModel {
             console.log(`\n💾 Прогресс сохранен. Запустите программу снова, чтобы загрузить оставшиеся главы.`);
         }
 
-        // Сортирую главы по порядку
+        // Сортирую главы по порядку (по ID, который соответствует порядку в исходном списке)
         bookContent.sort((a, b) => a.id - b.id);
 
         // Возвращаем объект с контентом и информацией об ошибках
@@ -1302,7 +1302,7 @@ export class BookService implements BookServiceModel {
         
         return null;
     }
-
+    
     // Метод для фильтрации глав по выбранным томам
     public filterChaptersByVolumes(chapters: BookChaptersModel[], selectedVolumes: number[]): BookChaptersModel[] {
         // Специальная обработка для ограничения по количеству глав
@@ -1430,12 +1430,15 @@ export class BookService implements BookServiceModel {
                 const volumeFileName = `${bookId}_том_${volume}`;
                 const volumeFilePath = `${basePath}/${volumeFileName}.epub`;
                 
+                // Сортируем главы по ID (который соответствует порядку в исходном списке)
+                volumeContent.sort((a: BookContentModel, b: BookContentModel) => a.id - b.id);
+                
                 // Генерируем EPUB для этого тома
                 console.log(`\n📚 Генерируем EPUB для тома ${volume}...`);
                 const volumeBookOptions: BookDataModel = {
                     ...bookInfo,
                     title: `${bookInfo.title} - Том ${volume}`,
-                    content: [...volumeContent],
+                    content: volumeContent,
                     output: volumeFilePath,
                     verbose: false, // Отключаем verbose для отдельных томов
                 };

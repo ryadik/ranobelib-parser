@@ -277,9 +277,12 @@ let useProgress = false;
     
     const OUTPUT_BOOK_PATH = `${booksDir}/${outputFileName}.epub`;
 
+    // Сортируем главы по ID (который соответствует порядку в исходном списке)
+    bookContent.sort((a: any, b: any) => a.id - b.id);
+    
     const epubBookOptions: BookDataModel = {
       ...bookInfo,
-      content: [...bookContent],
+      content: bookContent,
       output: OUTPUT_BOOK_PATH,
       verbose: true,
     }
