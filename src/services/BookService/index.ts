@@ -117,7 +117,7 @@ export class BookService implements BookServiceModel {
             
             // Если все еще не нашли заголовок, используем значение по умолчанию
             if (!title) {
-                title = 'Монолог фармацевта (LN)';
+                title = 'Неизвестное название';
             }
             
             // Если не нашли автора, используем значение по умолчанию
@@ -171,12 +171,7 @@ export class BookService implements BookServiceModel {
             const isRateLimitError = errorStatus === 429 || errorMessage.includes('429') || errorMessage.includes('too many requests');
             
             if (isRateLimitError) {
-                console.log(`⚠️ Ошибка 429 при проверке URL. Закрываем браузер и пробуем продолжить с API...`);
-                try {
-                    await this.$browserService.closeBrowser(browser);
-                } catch (closeError) {
-                    // Игнорируем ошибки закрытия
-                }
+                console.log(`⚠️ Ошибка 429 при проверке URL. Продолжаем с API...`);
             } else {
                 console.log(`⚠️ Не удалось загрузить основной URL: ${error}`);
                 console.log('Попробуем продолжить с API...');
@@ -187,6 +182,7 @@ export class BookService implements BookServiceModel {
         // Формат URL: https://ranobelib.me/ru/book/165329--kusuriya-no-hitorigoto-ln-novel?section=chapters&ui=3317054
         // Нужно извлечь: 165329--kusuriya-no-hitorigoto-ln-novel
         const urlWithoutParams = url.split('?')[0];
+        let bookId: string;
         const bookIdMatch = urlWithoutParams.match(/\/book\/([^\/\?]+)/);
         if (!bookIdMatch) {
             // Пробуем альтернативный формат без /book/
@@ -196,9 +192,9 @@ export class BookService implements BookServiceModel {
                 this.$errorService.throwError(ErrorMsgModel.ELEMENT_COULD_NOT_BE_FOUND, 'ID книги в URL');
                 return [];
             }
-            var bookId = altMatch[1];
+            bookId = altMatch[1];
         } else {
-            var bookId = bookIdMatch[1];
+            bookId = bookIdMatch[1];
         }
         
         // Убираем возможные параметры, которые могли попасть в ID
@@ -356,7 +352,6 @@ export class BookService implements BookServiceModel {
                 console.log(`Получено ${chaptersData.data.length} глав через API`);
                 
                 // Отладочный вывод: показываем все главы 16 тома из API
-                const volume16FromAPI = chaptersData.data.filter((ch: any) => ch.volume === 16);
                 // Преобразуем данные API в нужный формат
                 chaptersWithTitles = chaptersData.data.map((chapter: any, index: number) => {
                     // Строим URL главы на основе данных из API
@@ -1483,7 +1478,6 @@ export class BookService implements BookServiceModel {
                 // Очищаем прогресс этого тома только если все главы загружены
                 if (volumeContent.length === volumeChapters.length) {
                     try {
-                        const fs = require('fs');
                         const progressFile = path.join(process.cwd(), 'progress', `${bookId}_том_${volume}_progress.json`);
                         if (fs.existsSync(progressFile)) {
                             fs.unlinkSync(progressFile);
