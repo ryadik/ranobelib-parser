@@ -171,12 +171,7 @@ export class BookService implements BookServiceModel {
             const isRateLimitError = errorStatus === 429 || errorMessage.includes('429') || errorMessage.includes('too many requests');
             
             if (isRateLimitError) {
-                console.log(`⚠️ Ошибка 429 при проверке URL. Закрываем браузер и пробуем продолжить с API...`);
-                try {
-                    await this.$browserService.closeBrowser(browser);
-                } catch (closeError) {
-                    // Игнорируем ошибки закрытия
-                }
+                console.log(`⚠️ Ошибка 429 при проверке URL. Продолжаем с API...`);
             } else {
                 console.log(`⚠️ Не удалось загрузить основной URL: ${error}`);
                 console.log('Попробуем продолжить с API...');
