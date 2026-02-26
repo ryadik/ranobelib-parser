@@ -1,7 +1,6 @@
 import type {Options as BookDataModel} from 'epub-gen'
 import {$bookService, $commonService} from './services/index';
 import * as path from "path";
-const prompt = require('prompt-sync')({ sigint: true });
 
 
 $commonService.userAlert();
@@ -38,6 +37,7 @@ let useProgress = false;
     console.log('1. Продолжить загрузку (быстрое продолжение)');
     console.log('2. Начать новую загрузку');
     
+    const prompt = require('prompt-sync')({ sigint: true });
     const choice = prompt('Ваш выбор (1-2): ');
     
     if (choice === '1' && progressFiles.length > 0) {
@@ -68,6 +68,7 @@ let useProgress = false;
         console.log(`⚠️ В сохраненном прогрессе нет URL или списка глав.`);
         console.log(`📝 Нужно ввести URL для продолжения загрузки.\n`);
         
+        const prompt = require('prompt-sync')({ sigint: true });
         console.log('Введите URL книги для продолжения загрузки:');
         console.log('Пример: https://ranobelib.me/ru/book/165329--kusuriya-no-hitorigoto-ln-novel');
         const inputUrl = prompt('URL: ');
@@ -249,6 +250,7 @@ let useProgress = false;
         console.log(`   Прогресс сохранен и будет использован при следующем запуске.`);
         console.log(`\n❓ Создать книгу с неполным содержимым? (y/n)`);
         
+        const prompt = require('prompt-sync')({ sigint: true });
         const answer = prompt('');
         
         if (answer?.toLowerCase() !== 'y' && answer?.toLowerCase() !== 'yes' && answer?.toLowerCase() !== 'да') {
@@ -350,7 +352,4 @@ let useProgress = false;
   // Завершаем процесс
   console.log('🔚 Завершение работы...');
   process.exit(0);
-})().catch((error) => {
-  console.error('\n❌ Критическая ошибка:', error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+})();

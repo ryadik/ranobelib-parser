@@ -2,10 +2,10 @@ import type {Config, Prompt} from "prompt-sync";
 import type {CommonServiceModel} from "../../models/common-service.model";
 
 export class CommonService implements CommonServiceModel {
-    private readonly $promptSync: (config?: Config) => Prompt;
+    private readonly $promtSync: (config?: Config) => Prompt;
 
-    constructor($promptSync: (config?: Config) => Prompt) {
-        this.$promptSync = $promptSync;
+    constructor($promtSync: (config?: Config) => Prompt) {
+        this.$promtSync = $promtSync;
     }
 
     public userAlert(): void {
@@ -17,7 +17,7 @@ export class CommonService implements CommonServiceModel {
     }
 
     public getBookURL(): string {
-        const prompt = this.$promptSync({ sigint: true });
+        const prompt = this.$promtSync({ sigint: true });
 
         console.log("\nВведите, пожалуйста, адрес книги с сайта ranobelib.me");
         console.log("Пример адреса: https://ranobelib.me/sakurasou-no-pet-na-kanojo-novel")
@@ -37,7 +37,7 @@ export class CommonService implements CommonServiceModel {
     }
 
     public selectVolumesToDownload(chaptersData: any[]): any[] {
-        const prompt = this.$promptSync({ sigint: true });
+        const prompt = this.$promtSync({ sigint: true });
         
         // Группируем главы по томам
         const volumeMap = new Map<number, number>();
@@ -219,5 +219,6 @@ export class CommonService implements CommonServiceModel {
             }
         }
         
+        return selectedVolumes;
     }
 }

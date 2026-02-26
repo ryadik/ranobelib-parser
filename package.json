@@ -15,7 +15,7 @@
     "epub",
     "епаб"
   ],
-  "main": "build/index.js",
+  "main": "src/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
@@ -25,13 +25,14 @@
   "license": "MIT",
   "dependencies": {
     "epub-gen": "^0.1.0",
+    "node-fetch": "^3.3.2",
     "prompt-sync": "^4.2.0",
-    "puppeteer": "^21.3.4"
+    "puppeteer": "^21.3.4",
+    "typescript": "^5.2.2"
   },
   "devDependencies": {
     "@types/epub-gen": "^0.1.0",
     "@types/node": "^20.7.0",
-    "@types/prompt-sync": "^4.2.1",
-    "typescript": "^5.2.2"
+    "@types/prompt-sync": "^4.2.1"
   }
 }
