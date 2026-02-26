@@ -350,4 +350,7 @@ let useProgress = false;
   // Завершаем процесс
   console.log('🔚 Завершение работы...');
   process.exit(0);
-})();
+})().catch((error) => {
+  console.error('\n❌ Критическая ошибка:', error instanceof Error ? error.message : error);
+  process.exit(1);
+});
