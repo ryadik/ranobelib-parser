@@ -11,6 +11,7 @@ import {CommonService} from "../CommonService/index";
 import {Config, Prompt} from "prompt-sync";
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 export class BookService implements BookServiceModel {
   constructor(
@@ -936,7 +937,7 @@ export class BookService implements BookServiceModel {
         
         try {
             // Предварительно обрабатываем изображения в контенте
-            const processedBookData = this.preprocessImages(bookData);
+            const processedBookData = await this.preprocessImages(bookData);
             
             // Создаем обработчик для перехвата глобальных ошибок
             const originalListeners = {
@@ -1014,14 +1015,18 @@ export class BookService implements BookServiceModel {
     }
 
     // Метод для предварительной обработки изображений в контенте
-    private preprocessImages(bookData: BookDataModel): BookDataModel {
+    private async preprocessImages(bookData: BookDataModel): Promise<BookDataModel> {
         console.log('🖼️ Предварительная обработка изображений...');
         
         let totalImages = 0;
         let removedImages = 0;
         let processedImages = 0;
+        const imageCacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ranobelib-parser-images-'));
+        const downloadedImages = new Map<string, string>();
         
-        const processedContent = bookData.content.map((chapter: any) => {
+        const processedContent = [];
+
+        for (const chapter of bookData.content as any[]) {
             if (chapter.data && typeof chapter.data === 'string') {
                 let processedData = chapter.data;
                 
@@ -1032,47 +1037,74 @@ export class BookService implements BookServiceModel {
                 
                 if (chapterImages > 0) {
                     console.log(`🖼️ Глава "${chapter.title}": найдено ${chapterImages} изображений`);
-                    
-                    // СТРАТЕГИЯ 1: Удаляем изображения с пустыми или проблемными src
-                    processedData = processedData.replace(/<img([^>]*?)>/gi, (match: string, attrs: string) => {
-                        // Проверяем проблемные паттерны
+
+                    const imageMatches = Array.from(processedData.matchAll(/<img([^>]*?)>/gi)) as RegExpMatchArray[];
+
+                    for (const imageMatch of imageMatches) {
+                        const match = imageMatch[0];
+                        const attrs = imageMatch[1];
+
                         if (attrs.includes('src=""') || 
                             attrs.includes("src=''") ||
                             attrs.includes('src="undefined"') ||
                             attrs.includes('src="null"')) {
                             removedImages++;
                             console.log('🗑️ Удалено изображение с пустым/неверным src');
-                            return '';
+                            processedData = processedData.replace(match, '');
+                            continue;
                         }
                         
                         // Извлекаем URL изображения
                         const srcMatch = attrs.match(/src\s*=\s*["']([^"']+)["']/i);
-                        if (srcMatch) {
-                            const imageUrl = srcMatch[1];
-                            
-                            // Проверяем проблемные URL
-                            if (!imageUrl || 
-                                imageUrl.length < 10 ||
-                                imageUrl.includes('undefined') ||
-                                imageUrl.includes('null') ||
-                                imageUrl.startsWith('data:') && imageUrl.length < 50) {
-                                removedImages++;
-                                console.log(`🗑️ Удалено проблемное изображение: ${imageUrl.substring(0, 50)}...`);
-                                return '';
-                            }
-                            
-                            // СТРАТЕГИЯ 2: Заменяем только внешние изображения на заглушки
-                            if (imageUrl.startsWith('http') && !imageUrl.includes('ranobelib.me')) {
-                                processedImages++;
-                                console.log(`🔄 Заменено внешнее изображение на заглушку`);
-                                return `<div style="text-align: center; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; color: #666;">
-                                    📷 [Внешнее изображение удалено для стабильности]
-                                </div>`;
+                        if (!srcMatch) {
+                            removedImages++;
+                            console.log('🗑️ Удалено изображение без src');
+                            processedData = processedData.replace(match, '');
+                            continue;
+                        }
+
+                        const imageUrl = srcMatch[1];
+                        
+                        // Проверяем проблемные URL
+                        if (!imageUrl ||
+                            imageUrl.length < 10 ||
+                            imageUrl.includes('undefined') ||
+                            imageUrl.includes('null') ||
+                            imageUrl.startsWith('data:') && imageUrl.length < 50) {
+                            removedImages++;
+                            console.log(`🗑️ Удалено проблемное изображение: ${imageUrl.substring(0, 50)}...`);
+                            processedData = processedData.replace(match, '');
+                            continue;
+                        }
+
+                        if (imageUrl.startsWith('http') && !imageUrl.includes('ranobelib.me')) {
+                            processedImages++;
+                            console.log(`🔄 Заменено внешнее изображение на заглушку`);
+                            processedData = processedData.replace(match, `<div style="text-align: center; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; color: #666;">
+                                📷 [Внешнее изображение удалено для стабильности]
+                            </div>`);
+                            continue;
+                        }
+
+                        let localImageUrl: string | undefined = downloadedImages.get(imageUrl);
+                        if (!localImageUrl && imageUrl.startsWith('http')) {
+                            localImageUrl = await this.downloadImageToLocalFile(imageUrl, imageCacheDir) || undefined;
+                            if (localImageUrl) {
+                                downloadedImages.set(imageUrl, localImageUrl);
                             }
                         }
-                        
-                        // СТРАТЕГИЯ 3: Улучшаем оставшиеся изображения
+
+                        if (!localImageUrl && imageUrl.startsWith('http')) {
+                            removedImages++;
+                            console.log(`🗑️ Изображение не удалось скачать как валидный файл: ${imageUrl.substring(0, 80)}...`);
+                            processedData = processedData.replace(match, '');
+                            continue;
+                        }
+
                         let improvedAttrs = attrs;
+                        if (localImageUrl) {
+                            improvedAttrs = improvedAttrs.replace(/src\s*=\s*["'][^"']+["']/i, `src="${localImageUrl}"`);
+                        }
                         
                         // Добавляем alt если отсутствует
                         if (!improvedAttrs.includes('alt=')) {
@@ -1090,8 +1122,8 @@ export class BookService implements BookServiceModel {
                         }
                         
                         processedImages++;
-                        return `<img${improvedAttrs}>`;
-                    });
+                        processedData = processedData.replace(match, `<img${improvedAttrs}>`);
+                    }
                     
                     // СТРАТЕГИЯ 4: Оборачиваем оставшиеся изображения в контейнеры без лишнего текста
                     processedData = processedData.replace(/<img([^>]*?)>/gi, (match: string) => {
@@ -1101,14 +1133,26 @@ export class BookService implements BookServiceModel {
                     });
                 }
                 
-                return {
+                processedContent.push({
                     ...chapter,
                     data: processedData
-                };
+                });
+                continue;
             }
             
-            return chapter;
-        });
+            processedContent.push(chapter);
+        }
+
+        let processedCover = bookData.cover;
+        if (typeof processedCover === 'string' && processedCover.startsWith('http')) {
+            const localCover = await this.downloadImageToLocalFile(processedCover, imageCacheDir);
+            if (localCover) {
+                processedCover = localCover.replace('file://', '');
+                console.log('🖼️ Обложка скачана локально');
+            } else {
+                console.log('⚠️ Обложку не удалось скачать как валидное изображение, оставляем исходный URL');
+            }
+        }
         
         console.log(`📊 Статистика обработки изображений:`);
         console.log(`   Всего найдено: ${totalImages}`);
@@ -1118,8 +1162,58 @@ export class BookService implements BookServiceModel {
         
         return {
             ...bookData,
+            cover: processedCover,
             content: processedContent
         };
+    }
+
+    private async downloadImageToLocalFile(imageUrl: string, outputDir: string): Promise<string | null> {
+        try {
+            const response = await fetch(imageUrl, {
+                headers: {
+                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Cache-Control': 'no-cache',
+                    'Referer': 'https://ranobelib.me/',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                },
+            });
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!response.ok || !contentType.toLowerCase().startsWith('image/')) {
+                console.log(`⚠️ Не картинка: HTTP ${response.status}, content-type "${contentType || 'unknown'}"`);
+                return null;
+            }
+
+            const imageBuffer = Buffer.from(await response.arrayBuffer());
+            const extension = this.getImageExtension(imageUrl, contentType);
+            const imageFilePath = path.join(outputDir, `${Date.now()}_${Math.random().toString(36).slice(2)}.${extension}`);
+            fs.writeFileSync(imageFilePath, imageBuffer);
+
+            return `file://${imageFilePath}`;
+        } catch (error) {
+            console.log(`⚠️ Ошибка скачивания изображения: ${error instanceof Error ? error.message : error}`);
+            return null;
+        }
+    }
+
+    private getImageExtension(imageUrl: string, contentType: string): string {
+        const urlExtension = imageUrl.split('?')[0].match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
+        if (urlExtension && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(urlExtension)) {
+            return urlExtension;
+        }
+
+        const normalizedContentType = contentType.toLowerCase().split(';')[0].trim();
+        const extensionsByType: Record<string, string> = {
+            'image/jpeg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+            'image/svg+xml': 'svg',
+            'image/avif': 'avif',
+        };
+
+        return extensionsByType[normalizedContentType] || 'jpg';
     }
 
     // Дополнительный метод для создания EPUB без изображений (для критических случаев)
