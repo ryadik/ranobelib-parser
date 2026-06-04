@@ -4,3 +4,10 @@ build
 books
 src/test.js
 progress
+logs
+
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
