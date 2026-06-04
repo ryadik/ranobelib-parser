@@ -1044,7 +1044,7 @@ export class BookService implements BookServiceModel {
                         const match = imageMatch[0];
                         const attrs = imageMatch[1];
 
-                        if (attrs.includes('src=""') || 
+                        if (attrs.includes('src=""') ||
                             attrs.includes("src=''") ||
                             attrs.includes('src="undefined"') ||
                             attrs.includes('src="null"')) {
@@ -1074,15 +1074,6 @@ export class BookService implements BookServiceModel {
                             removedImages++;
                             console.log(`🗑️ Удалено проблемное изображение: ${imageUrl.substring(0, 50)}...`);
                             processedData = processedData.replace(match, '');
-                            continue;
-                        }
-
-                        if (imageUrl.startsWith('http') && !imageUrl.includes('ranobelib.me')) {
-                            processedImages++;
-                            console.log(`🔄 Заменено внешнее изображение на заглушку`);
-                            processedData = processedData.replace(match, `<div style="text-align: center; padding: 10px; border: 1px dashed #ccc; margin: 10px 0; color: #666;">
-                                📷 [Внешнее изображение удалено для стабильности]
-                            </div>`);
                             continue;
                         }
 
