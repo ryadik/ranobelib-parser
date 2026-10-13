@@ -26,7 +26,7 @@
   "dependencies": {
     "epub-gen": "^0.1.0",
     "prompt-sync": "^4.2.0",
-    "puppeteer": "^21.3.4"
+    "puppeteer": "^23.6.0"
   },
   "devDependencies": {
     "@types/epub-gen": "^0.1.0",

@@ -2,11 +2,19 @@ import type {BookInfoModel} from "./book-info.model";
 import type {BookChaptersModel} from "./book-chapters.model";
 import type {BookContentModel} from "./book-content.model";
 import type {Options as BookDataModel} from "epub-gen";
+import type {Browser, Page} from "puppeteer";
 
 export interface BookServiceModel {
     getBookInfo(url: string): Promise<BookInfoModel>;
     getChapters(url: string): Promise<BookChaptersModel[]>;
-    getAllBookContent(bookChapters: BookChaptersModel[], bookId: string, url?: string, allChapters?: BookChaptersModel[]): Promise<BookContentModel[]>;
+    getAllBookContent(
+        bookChapters: BookChaptersModel[],
+        bookId: string,
+        browser: Browser,
+        page: Page,
+        url?: string,
+        allChapters?: BookChaptersModel[]
+    ): Promise<BookContentModel[]>;
     generateEpubFromData(bookData: BookDataModel): Promise<any>;
     generateEpubFromDataNoImages(bookData: BookDataModel): Promise<any>;
     filterChaptersByVolumes(chapters: BookChaptersModel[], selectedVolumes: number[]): BookChaptersModel[];
